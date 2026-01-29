@@ -1,0 +1,23 @@
+# Ignore the Virtual Environment (Huge folder, never push this)
+venv/
+env/
+
+# Ignore Compiled Python files
+__pycache__/
+*.pyc
+
+# Ignore Build/Dist folders (The .exe is too big for Git)
+build/
+dist/
+*.spec
+
+# Ignore Local User Settings (Protects your credentials)
+user_config.json
+.env
+
+# Ignore Logs and Reports
+*.log
+reports/
+
+# Ignore the legacy script with the password (Optional, but recommended)
+scalpbot.py

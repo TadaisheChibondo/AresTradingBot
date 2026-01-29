@@ -1,0 +1,24 @@
+Project Title: Ares Terminal Pro – Algorithmic Trading & Analytics Platform
+"Ares Terminal Pro is a production-grade algorithmic trading platform engineered for high-frequency synthetic indices markets. Unlike standard 'headless' trading scripts, Ares is a full-stack desktop application that bridges the gap between complex quantitative execution and user-friendly analytics. It features a multithreaded Python engine capable of processing real-time tick data across 6+ simultaneous assets without UI latency, utilizing a custom-built Event Loop architecture.
+
+The system integrates institutional-grade tools typically reserved for hedge funds: a Monte Carlo Simulation engine for 2,000-iteration risk modeling, a Historical Backtester that generates interactive HTML equity curve reports, and a Dynamic Trendline Algorithm using linear regression for automated technical analysis. Built with a focus on reliability, it includes an autonomous 'Heartbeat' telemetry system that sends real-time SMTP status alerts and trade notifications to the user’s mobile device, ensuring 24/7 unmonitored operation."
+
+The Tech Stack 
+Core Engine: Python 3.12 (Multithreading, AsyncIO)
+
+GUI Framework: Flet (Flutter-based Python UI) for cross-platform reactive interfaces.
+
+Financial Engineering: MetaTrader 5 API (Direct Market Access), Pandas/NumPy (Vectorized Data Analysis), SciPy (Signal Processing & Linear Regression).
+
+Analytics & Visualization: Chart.js (Interactive Reporting), Matplotlib (Data Plotting).
+
+DevOps & Distribution: PyInstaller (Binary Compilation), SMTP/SSL (Encrypted Notification Systems), JSON (State Persistence).
+
+Key Engineering Achievements 
+Engineered a non-blocking GUI that decouples the UI thread from the high-frequency trading loop, ensuring zero interface lag even during 100+ ticks/second data bursts.
+
+Developed a custom Backtesting Engine that reconstructs historical market states from M1 data to simulate strategy performance with 99% logic accuracy compared to live execution.
+
+Implemented "Risk of Ruin" modeling using Monte Carlo simulations to statistically predict portfolio survivability, empowering users to make data-driven risk management decisions.
+
+Created a self-healing connection protocol that automatically detects MT5 terminal disconnections and re-establishes sessions without user intervention.

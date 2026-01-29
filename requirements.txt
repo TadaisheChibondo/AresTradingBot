@@ -1,0 +1,8 @@
+flet==0.28.3
+MetaTrader5
+pandas
+pandas_ta_classic
+numpy
+scipy
+python-dotenv
+requests
