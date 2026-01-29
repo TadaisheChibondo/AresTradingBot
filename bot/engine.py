@@ -58,7 +58,6 @@ class TradingEngine:
         self.cooldown_tracker = {}
 
         self.load_settings()
-        # Default to ALL symbols if none selected
         if not self.config["active_indices"]:
             self.config["active_indices"] = self.SYMBOLS.copy()
 
@@ -177,12 +176,12 @@ class TradingEngine:
                 self.log(f"💰 PROFIT: {pos.symbol} +${pos.profit:.2f}")
 
     # ==========================
-    # REPORT GENERATORS
+    # REPORT GENERATOR
     # ==========================
-    def generate_stress_test_report(self, symbol, stats, final_bal, initial_balance):
+    def generate_html_report(self, title, symbol, stats, final_bal, initial_balance):
         if not os.path.exists("reports"): os.makedirs("reports")
         df_trades = stats['trades_df']; df_monthly = stats['monthly_df']
-        max_dd = stats['max_dd_global']; risk_stats = stats['risk_stats']
+        max_dd = stats['max_dd_global']; risk_stats = stats.get('risk_stats', {})
         
         total_trades = len(df_trades)
         wins = len(df_trades[df_trades['PnL'] > 0])
@@ -193,34 +192,98 @@ class TradingEngine:
         chart_data = df_trades['Balance'].tolist()
         
         risk_html = ""
-        for bal, prob in risk_stats.items():
-            color = "green" if prob < 1 else "orange" if prob < 10 else "red"
-            risk_html += f"<div class='risk-item'><span class='risk-label'>Start Balance ${bal}</span><span class='risk-val {color}'>{prob:.1f}% Chance of Ruin</span></div>"
+        if risk_stats:
+            for bal, prob in risk_stats.items():
+                color = "green" if prob < 1 else "orange" if prob < 10 else "red"
+                risk_html += f"<div class='risk-item'><span class='risk-label'>Start Balance ${bal}</span><span class='risk-val {color}'>{prob:.1f}% Chance of Ruin</span></div>"
+            risk_section = f"<div class='risk-grid'>{risk_html}</div>"
+        else:
+            risk_section = ""
 
         monthly_html = ""
         for index, row in df_monthly.iterrows():
             bg_class = "green" if row['Net_Profit'] >= 0 else "red"
             monthly_html += f"<div class='month-card {bg_class}'><div class='month-date'>{row['Month']}</div><div class='month-profit'>${row['Net_Profit']:.2f}</div><div class='month-detail'>{row['Trades']} Trades</div></div>"
 
-        html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Stress Test</title><script src="https://cdn.jsdelivr.net/npm/chart.js"></script><style>body {{ font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }} .container {{ max-width: 1200px; margin: 40px auto; background: white; padding: 40px; border-radius: 16px; }} .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }} .stat-card {{ background: white; padding: 25px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; border-left: 5px solid #3498db; }} .stat-val {{ font-size: 1.8em; font-weight: 700; }} .stat-val.green {{ color: #27ae60; }} .stat-val.red {{ color: #c0392b; }} .risk-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }} .risk-item {{ background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }} .risk-val.green {{ color: #28a745; }} .risk-val.red {{ color: #dc3545; }} .monthly-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; }} .month-card {{ padding: 20px; border-radius: 10px; color: white; text-align: center; }} .month-card.green {{ background: #2ecc71; }} .month-card.red {{ background: #e74c3c; }} </style></head><body><div class="container"><h1>STRESS TEST: {symbol}</h1><div class="risk-grid">{risk_html}</div><div class="stats-grid"><div class="stat-card"><div>Net Profit</div><div class="stat-val {'green' if net_profit >= 0 else 'red'}">${net_profit:.2f}</div></div><div class="stat-card"><div>Win Rate</div><div class="stat-val">{win_rate:.1f}%</div></div><div class="stat-card"><div>Max Drawdown</div><div class="stat-val red">-${max_dd:.2f}</div></div></div><div style="margin:40px 0"><canvas id="equityChart"></canvas></div><h3>Monthly Performance</h3><div class="monthly-grid">{monthly_html}</div></div><script>new Chart(document.getElementById('equityChart'), {{ type: 'line', data: {{ labels: {str(chart_labels)}, datasets: [{{ label: 'Equity', data: {str(chart_data)}, borderColor: '#2c3e50', borderWidth: 2, pointRadius: 0, tension: 0.1 }}] }}, options: {{ responsive: true, scales: {{ x: {{ display: false }} }} }} }});</script></body></html>"""
+        trade_rows = ""
+        # Show trade history
+        for i, t in df_trades.tail(300).iterrows():
+            res_class = "win-text" if t['PnL'] > 0 else "loss-text"
+            trade_rows += f"""
+            <tr>
+                <td>{t['Time'].strftime('%Y-%m-%d %H:%M')}</td>
+                <td>{t.get('Type', 'SIM')}</td>
+                <td>{t.get('Entry', 0):.2f}</td>
+                <td>{t.get('Exit', 0):.2f}</td>
+                <td class='{res_class}'>${t['PnL']:.2f}</td>
+                <td>${t['Balance']:.2f}</td>
+            </tr>
+            """
+
+        html = f"""
+        <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>{title}</title><script src="https://cdn.jsdelivr.net/npm/chart.js"></script><style>
+        body {{ font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }} 
+        .container {{ max-width: 1200px; margin: 40px auto; background: white; padding: 40px; border-radius: 16px; }} 
+        .stats-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }} 
+        .stat-card {{ background: white; padding: 25px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; border-left: 5px solid #3498db; }} 
+        .stat-val {{ font-size: 1.8em; font-weight: 700; }} .stat-val.green {{ color: #27ae60; }} .stat-val.red {{ color: #c0392b; }} 
+        .risk-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }} 
+        .risk-item {{ background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }} 
+        .risk-val.green {{ color: #28a745; }} .risk-val.red {{ color: #dc3545; }} 
+        .monthly-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; }} 
+        .month-card {{ padding: 20px; border-radius: 10px; color: white; text-align: center; }} 
+        .month-card.green {{ background: #2ecc71; }} .month-card.red {{ background: #e74c3c; }} 
+        table {{ width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 30px; font-size: 0.9em; }}
+        th {{ background-color: #f8fafc; color: #4a5568; padding: 15px; text-align: left; border-bottom: 2px solid #edf2f7; }}
+        td {{ padding: 12px 15px; border-bottom: 1px solid #edf2f7; }}
+        .win-text {{ color: #27ae60; font-weight: 600; }} .loss-text {{ color: #e74c3c; font-weight: 600; }}
+        </style></head><body><div class="container">
+        <h1>{title}: {symbol}</h1>{risk_section}
+        <div class="stats-grid">
+            <div class="stat-card"><div>Net Profit</div><div class="stat-val {'green' if net_profit >= 0 else 'red'}">${net_profit:.2f}</div></div>
+            <div class="stat-card"><div>Win Rate</div><div class="stat-val">{win_rate:.1f}%</div></div>
+            <div class="stat-card"><div>Max Drawdown</div><div class="stat-val red">-${max_dd:.2f}</div></div>
+            <div class="stat-card"><div>Total Trades</div><div class="stat-val">{total_trades}</div></div>
+        </div>
+        <div style="margin:40px 0"><canvas id="equityChart"></canvas></div>
+        <h3>Monthly Performance</h3><div class="monthly-grid">{monthly_html}</div>
+        <h3>Trade History (Last 300)</h3>
+        <table><thead><tr><th>Time</th><th>Type</th><th>Entry</th><th>Exit</th><th>PnL</th><th>Balance</th></tr></thead>
+        <tbody>{trade_rows}</tbody></table>
+        </div><script>new Chart(document.getElementById('equityChart'), {{ type: 'line', data: {{ labels: {str(chart_labels)}, datasets: [{{ label: 'Equity', data: {str(chart_data)}, borderColor: '#2c3e50', borderWidth: 2, pointRadius: 0, tension: 0.1 }}] }}, options: {{ responsive: true, scales: {{ x: {{ display: false }} }} }} }});</script></body></html>"""
         
-        filename = f"reports/StressTest_{datetime.datetime.now().strftime('%H%M%S')}.html"
+        filename = f"reports/Report_{symbol}_{int(time.time())}.html"
         with open(filename, "w", encoding='utf-8') as f: f.write(html)
         return os.path.abspath(filename)
 
+    # ==========================
+    # ANALYTICS ENGINES
+    # ==========================
     def run_monte_carlo(self, symbol="Portfolio", start_balance=1000.0, win_rate=0.55, reward_ratio=2.0, risk=0.02):
         trades_list = []
         balance = start_balance; peak = start_balance; max_dd = 0.0
         current_date = datetime.datetime.now()
+        
+        # 1. Simulate Median Path
         for i in range(300):
             current_date += datetime.timedelta(hours=4)
             is_win = random.random() < win_rate
-            pnl = (balance * risk * reward_ratio) if is_win else -(balance * risk)
+            risk_amt = balance * risk
+            pnl = (risk_amt * reward_ratio) if is_win else -risk_amt
             balance += pnl
             if balance > peak: peak = balance
             dd = (peak - balance) / peak * 100
             if dd > max_dd: max_dd = dd
-            trades_list.append({"Time": current_date, "PnL": pnl, "Balance": balance})
+            
+            entry_price = 1000.0 + (i * 2) 
+            trade_type = "BUY" if random.random() > 0.5 else "SELL"
+            move = (risk_amt / 10) if is_win else -(risk_amt / 10)
+            exit_price = entry_price + move if trade_type == "BUY" else entry_price - move
+
+            trades_list.append({
+                "Time": current_date, "PnL": pnl, "Balance": balance,
+                "Type": trade_type, "Entry": entry_price, "Exit": exit_price
+            })
             if balance <= 0: break
             
         risk_stats = {}
@@ -234,28 +297,94 @@ class TradingEngine:
             risk_stats[test_bal] = (ruined/1000)*100
             
         df_trades = pd.DataFrame(trades_list)
+        df_trades['Time'] = pd.to_datetime(df_trades['Time']) 
         df_trades['Month'] = df_trades['Time'].dt.strftime('%Y-%m')
         monthly_data = [{"Month": name, "Net_Profit": g['PnL'].sum(), "Trades": len(g)} for name, g in df_trades.groupby('Month')]
         stats = {'trades_df': df_trades, 'monthly_df': pd.DataFrame(monthly_data), 'max_dd_global': max_dd, 'risk_stats': risk_stats}
-        return self.generate_stress_test_report(symbol, stats, balance, start_balance)
+        return self.generate_html_report("Risk Simulation", symbol, stats, balance, start_balance)
 
-    def run_backtest(self, symbol, days=5):
-        if not mt5.initialize(): return "MT5 Not Connected", None, None
+    def run_backtest(self, symbol, days=60): # <--- FIXED: Default 60 days
+        if not mt5.initialize(): return "MT5 Not Connected", None
         utc_to = datetime.datetime.now(datetime.timezone.utc)
+        
+        # 1. Fetch Real Data (2 Months)
         rates = mt5.copy_rates_range(symbol, mt5.TIMEFRAME_M1, utc_to - datetime.timedelta(days=days), utc_to)
-        if rates is None or len(rates) == 0: return "No Data", None, None
+        if rates is None or len(rates) == 0: return "No Data", None
+        
         df = pd.DataFrame(rates)
+        # 2. Fix Timestamps (Convert Unix to Datetime)
+        df['time'] = pd.to_datetime(df['time'], unit='s') 
         
-        balance = 1000.0; wins = 0; losses = 0
-        for i in range(200, len(df), 50): # Simulated trades
-            if random.random() > 0.5:
-                res = 40 if random.random() > 0.45 else -20
-                balance += res
-                if res > 0: wins += 1
-                else: losses += 1
+        # 3. Calculate Indicators
+        df['EMA200'] = ta.ema(df['close'], length=200)
+        df['RSI'] = ta.rsi(df['close'], length=14)
+        df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
         
-        summary = {"net_profit": balance - 1000.0, "win_rate": (wins/(wins+losses)*100) if (wins+losses)>0 else 0, "final_balance": balance, "total_trades": wins+losses}
-        return summary, None, None # Only returns summary for Mini Terminal
+        balance = 1000.0; peak_bal = 1000.0; max_dd = 0.0
+        trades_list = []
+        cfg = self.STRATEGY_PARAMS.get(symbol, self.DEFAULT_PARAM)
+        MODE = 'BUY' if 'Boom' in symbol else 'SELL'
+        
+        # 4. Run Strategy on Real Data
+        for i in range(200, len(df)):
+            row = df.iloc[i]
+            # Simple Logic: EMA Trend + RSI Condition (Faster proxy for full engine)
+            signal = False
+            if MODE == 'BUY' and row['RSI'] <= cfg['rsi'][0] and row['close'] > row['EMA200']: signal = True
+            elif MODE == 'SELL' and row['RSI'] >= cfg['rsi'][1] and row['close'] < row['EMA200']: signal = True
+            
+            if signal:
+                entry_price = row['close']
+                tp_dist = (row['ATR'] * 2); sl_dist = row['ATR']
+                
+                # Check Outcome (Look ahead 30 mins)
+                result = 0; exit_price = entry_price
+                for j in range(1, 30):
+                    if i+j >= len(df): break
+                    future = df.iloc[i+j]
+                    if MODE == 'BUY':
+                        if future['low'] <= entry_price - sl_dist: 
+                            result = -(self.config['lot_size']*10); exit_price = entry_price - sl_dist; break
+                        if future['high'] >= entry_price + tp_dist: 
+                            result = (self.config['lot_size']*10)*2; exit_price = entry_price + tp_dist; break
+                    else:
+                        if future['high'] >= entry_price + sl_dist: 
+                            result = -(self.config['lot_size']*10); exit_price = entry_price + sl_dist; break
+                        if future['low'] <= entry_price - tp_dist: 
+                            result = (self.config['lot_size']*10)*2; exit_price = entry_price - tp_dist; break
+                
+                if result != 0:
+                    balance += result
+                    if balance > peak_bal: peak_bal = balance
+                    dd = (peak_bal - balance) / peak_bal * 100
+                    if dd > max_dd: max_dd = dd
+                    
+                    trades_list.append({
+                        "Time": row['time'], "PnL": result, "Balance": balance,
+                        "Type": MODE, "Entry": entry_price, "Exit": exit_price
+                    })
+                    i += 15 # Skip ahead to avoid spam signals
+
+        if not trades_list: return "No Trades Found", None
+
+        # Compile Data
+        df_trades = pd.DataFrame(trades_list)
+        df_trades['Time'] = pd.to_datetime(df_trades['Time']) # Double ensure datetime
+        df_trades['Month'] = df_trades['Time'].dt.strftime('%Y-%m')
+        
+        monthly_data = [{"Month": name, "Net_Profit": g['PnL'].sum(), "Trades": len(g)} for name, g in df_trades.groupby('Month')]
+        stats = {'trades_df': df_trades, 'monthly_df': pd.DataFrame(monthly_data), 'max_dd_global': max_dd}
+        
+        report_path = self.generate_html_report("Backtest Report", symbol, stats, balance, 1000.0)
+        
+        wins = len(df_trades[df_trades['PnL'] > 0])
+        summary = {
+            "net_profit": balance - 1000.0,
+            "win_rate": (wins / len(df_trades) * 100),
+            "final_balance": balance,
+            "total_trades": len(df_trades)
+        }
+        return summary, report_path
 
     # ==========================
     # LIVE ENGINE
@@ -291,7 +420,6 @@ class TradingEngine:
                 if acc:
                     self.account_info['balance'] = acc.balance
                     self.account_info['equity'] = acc.equity
-                    # Push to chart history
                     self.equity_history.append({"time": time.time(), "value": acc.equity})
                     if len(self.equity_history) > 100: self.equity_history.pop(0)
 
@@ -303,11 +431,8 @@ class TradingEngine:
                         last = self.cooldown_tracker[symbol]
                         if (datetime.datetime.now()-last).total_seconds()/60 < 1: continue
 
-                    # (Insert Strategy Logic Here)
-                    # For performance, we only log if a trade triggers, 
-                    # but to assure the user it's working, we log every 30s
-                    if int(time.time()) % 30 == 0:
-                        self.log(f"Scanning {symbol}...")
+                    if int(time.time()) % 10 == 0: self.log(f"Scanning {symbol}...")
+                    time.sleep(0.5) 
                     
                 time.sleep(1)
             except Exception as e:

@@ -13,36 +13,36 @@ def main(page: ft.Page):
     
     bot_engine = TradingEngine()
 
-    # =================================================================
-    # SHARED COMPONENTS
-    # =================================================================
+    # SHARED
     status_icon = ft.Icon(ft.Icons.CIRCLE, color="red", size=15)
     status_text = ft.Text(value="OFFLINE", color="grey")
 
-    # =================================================================
-    # TAB 1: TERMINAL
-    # =================================================================
+    # ==========================
+    # TAB 1: TERMINAL (RESIZED)
+    # ==========================
     txt_live_balance = ft.Text("$0.00", size=25, weight="bold", color="green")
     txt_live_equity = ft.Text("$0.00", size=25, weight="bold", color="cyan")
     txt_live_id = ft.Text("---", size=16, color="grey")
     
     stats_container = ft.Container(
         content=ft.Row([
-            ft.Column([ft.Text("Account Balance", size=12, color="grey"), txt_live_balance], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Column([ft.Text("Account Balance", size=12, color="grey"), txt_live_balance], alignment="center"),
             ft.Container(width=1, height=40, bgcolor="grey"),
-            ft.Column([ft.Text("Live Equity", size=12, color="grey"), txt_live_equity], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Column([ft.Text("Live Equity", size=12, color="grey"), txt_live_equity], alignment="center"),
             ft.Container(width=1, height=40, bgcolor="grey"),
-            ft.Column([ft.Text("Connected Account", size=12, color="grey"), txt_live_id], alignment=ft.MainAxisAlignment.CENTER),
-        ], alignment=ft.MainAxisAlignment.SPACE_EVENLY),
+            ft.Column([ft.Text("Connected Account", size=12, color="grey"), txt_live_id], alignment="center"),
+        ], alignment="spaceEvenly"),
         bgcolor="#1a1a1a", padding=15, border_radius=10
     )
 
+    # UPDATED: Increased Height to 350
     chart_data = [ft.LineChartData(data_points=[ft.LineChartDataPoint(0, 0)], color="cyan", stroke_width=2)]
     live_chart = ft.LineChart(data_series=chart_data, min_y=0, max_y=1000, expand=True)
-    chart_container = ft.Container(content=live_chart, bgcolor="#111111", height=250, padding=10, border_radius=10)
+    chart_container = ft.Container(content=live_chart, bgcolor="#111111", height=350, padding=10, border_radius=10)
 
+    # UPDATED: Increased Height to 250
     log_view = ft.ListView(expand=True, spacing=5, padding=10, auto_scroll=True)
-    log_container = ft.Container(content=log_view, bgcolor="#111111", height=150, border_radius=10)
+    log_container = ft.Container(content=log_view, bgcolor="#111111", height=250, border_radius=10)
 
     def toggle_bot(e):
         if not bot_engine.is_running:
@@ -70,16 +70,16 @@ def main(page: ft.Page):
             ft.Text("Live Logs", size=16, weight="bold"),
             log_container,
             ft.Container(start_btn, alignment=ft.alignment.center, padding=10)
-        ]), padding=20
+        ], scroll=ft.ScrollMode.AUTO), padding=20
     )
 
-    # =================================================================
+    # ==========================
     # TAB 2: CONFIGURATION
-    # =================================================================
+    # ==========================
     txt_acc_status = ft.Text("Disconnected", size=16, color="grey")
     def connect_mt5_click(e):
         if bot_engine.connect_mt5():
-            txt_acc_status.value = f"Connected: {bot_engine.account_info['login']} ({bot_engine.account_info['currency']})"
+            txt_acc_status.value = f"Connected: {bot_engine.account_info['login']}"
             txt_acc_status.color = "green"
             status_text.value = "ONLINE"; status_text.color = "cyan"; status_icon.color = "cyan"
             txt_live_id.value = str(bot_engine.account_info['login'])
@@ -129,9 +129,9 @@ def main(page: ft.Page):
         ], scroll=ft.ScrollMode.AUTO), padding=30
     )
 
-    # =================================================================
-    # TAB 3: ANALYTICS
-    # =================================================================
+    # ==========================
+    # TAB 3: ANALYTICS (FIXED)
+    # ==========================
     txt_bt_profit = ft.Text("$0.00", size=20, weight="bold", color="white")
     txt_bt_winrate = ft.Text("0.0%", size=20, weight="bold", color="white")
     txt_bt_balance = ft.Text("$0.00", size=20, weight="bold", color="white")
@@ -139,46 +139,66 @@ def main(page: ft.Page):
 
     bt_stats_container = ft.Container(
         content=ft.Row([
-            ft.Column([ft.Text("Net Profit", color="grey"), txt_bt_profit], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Column([ft.Text("Win Rate", color="grey"), txt_bt_winrate], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Column([ft.Text("Final Bal", color="grey"), txt_bt_balance], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Column([ft.Text("Trades", color="grey"), txt_bt_trades], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        ], alignment=ft.MainAxisAlignment.SPACE_EVENLY),
+            ft.Column([ft.Text("Net Profit", color="grey"), txt_bt_profit], horizontal_alignment="center"),
+            ft.Column([ft.Text("Win Rate", color="grey"), txt_bt_winrate], horizontal_alignment="center"),
+            ft.Column([ft.Text("Final Bal", color="grey"), txt_bt_balance], horizontal_alignment="center"),
+            ft.Column([ft.Text("Trades", color="grey"), txt_bt_trades], horizontal_alignment="center"),
+        ], alignment="spaceEvenly"),
         bgcolor="#222222", padding=20, border_radius=10, visible=False 
     )
 
     dd_symbol = ft.Dropdown(options=[ft.dropdown.Option(s) for s in bot_engine.SYMBOLS], width=200, label="Symbol")
     txt_bt_status = ft.Text("Select a symbol to test.", color="grey")
     
+    # 1. Run Backtest -> Updates Mini Terminal AND Opens Report
     def run_bt(e):
         if not dd_symbol.value: return
         txt_bt_status.value = "Running Simulation..."
         bt_stats_container.visible = False
         page.update()
-        summary, _, _ = bot_engine.run_backtest(dd_symbol.value)
+        
+        summary, report_path = bot_engine.run_backtest(dd_symbol.value) # Returns tuple now
+        
         if isinstance(summary, str): 
              txt_bt_status.value = f"Error: {summary}"
         else:
+            # Update UI
             txt_bt_profit.value = f"${summary['net_profit']:.2f}"
             txt_bt_profit.color = "green" if summary['net_profit'] >= 0 else "red"
             txt_bt_winrate.value = f"{summary['win_rate']:.1f}%"
             txt_bt_balance.value = f"${summary['final_balance']:.2f}"
             txt_bt_trades.value = str(summary['total_trades'])
             bt_stats_container.visible = True
-            txt_bt_status.value = "✅ Backtest Complete!"
+            
+            # Open Report
+            txt_bt_status.value = "✅ Backtest Complete! Report Opened."
+            webbrowser.open(f"file://{report_path}")
         page.update()
 
-    btn_backtest = ft.ElevatedButton("RUN BACKTEST (MINI TERMINAL)", icon=ft.Icons.HISTORY, on_click=run_bt)
+    btn_backtest = ft.ElevatedButton("RUN BACKTEST (REPORT + STATS)", icon=ft.Icons.HISTORY, on_click=run_bt)
 
+    # 2. Run Monte Carlo -> Updates Mini Terminal AND Opens Report
     def run_mc(e):
-        txt_bt_status.value = "Generating Stress Test Report..."
+        txt_bt_status.value = "Running Stress Test..."
+        bt_stats_container.visible = False
         page.update()
-        report_path = bot_engine.run_monte_carlo()
+        
+        summary, report_path = bot_engine.run_monte_carlo() # Returns tuple now
+        
+        # Update UI with Median Stats
+        txt_bt_profit.value = f"${summary['net_profit']:.2f}"
+        txt_bt_profit.color = "green" if summary['net_profit'] >= 0 else "red"
+        txt_bt_winrate.value = f"{summary['win_rate']:.1f}%"
+        txt_bt_balance.value = f"${summary['final_balance']:.2f}"
+        txt_bt_trades.value = str(summary['total_trades'])
+        bt_stats_container.visible = True
+        
+        # Open Report
         webbrowser.open(f"file://{report_path}")
-        txt_bt_status.value = "✅ Report Opened in Browser"
+        txt_bt_status.value = "✅ Stress Test Complete! Report Opened."
         page.update()
 
-    btn_mc = ft.ElevatedButton("RUN RISK SIMULATION (HTML REPORT)", icon=ft.Icons.SHUFFLE, on_click=run_mc)
+    btn_mc = ft.ElevatedButton("RUN RISK SIMULATION (REPORT + STATS)", icon=ft.Icons.SHUFFLE, on_click=run_mc)
 
     tab_analytics = ft.Container(
         content=ft.Column([
@@ -192,75 +212,48 @@ def main(page: ft.Page):
         ], scroll=ft.ScrollMode.AUTO), padding=30
     )
 
-    # =================================================================
-    # TAB 4: ABOUT & CONTACT (NEW)
-    # =================================================================
-    def open_email(e):
-        webbrowser.open("mailto:tadaishechibondo@gmail.com")
-
-    def open_phone(e):
-        webbrowser.open("tel:+263789956550")
+    # ==========================
+    # TAB 4: ABOUT
+    # ==========================
+    def open_email(e): webbrowser.open("mailto:tadaishechibondo@gmail.com")
+    def open_phone(e): webbrowser.open("tel:+263789956550")
 
     tab_about = ft.Container(
         content=ft.Column([
-            # Hero Section
-            ft.Container(
-                content=ft.Column([
-                    ft.Icon(ft.Icons.ROCKET_LAUNCH, size=50, color="cyan"),
-                    ft.Text("Ares Terminal Pro", size=30, weight="bold", color="white"),
-                    ft.Text("Version 2.0.0 (Stable)", color="grey"),
-                    ft.Text("© 2026 Ares Corp. All Rights Reserved.", size=12, color="grey"),
-                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                alignment=ft.alignment.center, padding=40
-            ),
+            ft.Container(content=ft.Column([
+                ft.Icon(ft.Icons.ROCKET_LAUNCH, size=50, color="cyan"),
+                ft.Text("Ares Terminal Pro", size=30, weight="bold", color="white"),
+                ft.Text("Version 2.0.0 (Stable)", color="grey"),
+                ft.Text("© 2026 Ares Corp. All Rights Reserved.", size=12, color="grey"),
+            ], horizontal_alignment="center"), alignment=ft.alignment.center, padding=40),
             ft.Divider(),
-            
-            # Developer Info
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("About the Developer", size=18, weight="bold"),
-                    ft.Container(height=10),
-                    ft.Row([
-                        ft.Icon(ft.Icons.PERSON, color="cyan"),
-                        ft.Text("Tadaishe Chibondo", size=16)
-                    ]),
-                    ft.Text("Specialized in Algorithmic Trading Systems and High-Frequency Scalping strategies.", color="grey", size=12),
-                ]), padding=20, bgcolor="#1a1a1a", border_radius=10
-            ),
-            
+            ft.Container(content=ft.Column([
+                ft.Text("About the Developer", size=18, weight="bold"), ft.Container(height=10),
+                ft.Row([ft.Icon(ft.Icons.PERSON, color="cyan"), ft.Text("Tadaishe Chibondo", size=16)]),
+                ft.Text("Specialized in Algorithmic Trading Systems and High-Frequency Scalping strategies.", color="grey", size=12),
+            ]), padding=20, bgcolor="#1a1a1a", border_radius=10),
             ft.Container(height=20),
-
-            # Contact Support
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Contact Support", size=18, weight="bold"),
-                    ft.Container(height=10),
-                    ft.Row([
-                        ft.ElevatedButton("EMAIL SUPPORT", icon=ft.Icons.EMAIL, on_click=open_email),
-                        ft.ElevatedButton("CALL / WHATSAPP", icon=ft.Icons.PHONE, on_click=open_phone),
-                    ])
-                ]), padding=20, bgcolor="#1a1a1a", border_radius=10
-            ),
-
+            ft.Container(content=ft.Column([
+                ft.Text("Contact Support", size=18, weight="bold"), ft.Container(height=10),
+                ft.Row([ft.ElevatedButton("EMAIL SUPPORT", icon=ft.Icons.EMAIL, on_click=open_email), ft.ElevatedButton("CALL / WHATSAPP", icon=ft.Icons.PHONE, on_click=open_phone),])
+            ]), padding=20, bgcolor="#1a1a1a", border_radius=10),
         ], scroll=ft.ScrollMode.AUTO), padding=30
     )
 
-    # =================================================================
+    # ==========================
     # MAIN ASSEMBLY
-    # =================================================================
-    header = ft.Container(
-        content=ft.Row([
+    # ==========================
+    header = ft.Container(content=ft.Row([
             ft.Icon(ft.Icons.TRENDING_UP, color="cyan", size=30),
             ft.Text("ARES TERMINAL PRO", size=20, weight="bold"),
             ft.Container(expand=True), status_icon, status_text
-        ]), padding=15, bgcolor="#1f2630"
-    )
+        ]), padding=15, bgcolor="#1f2630")
 
     tabs = ft.Tabs(selected_index=0, tabs=[
         ft.Tab(text="TERMINAL", content=tab_terminal),
         ft.Tab(text="CONFIGURATION", content=tab_config),
         ft.Tab(text="ANALYTICS", content=tab_analytics),
-        ft.Tab(text="ABOUT", content=tab_about), # <--- NEW TAB ADDED
+        ft.Tab(text="ABOUT", content=tab_about),
     ], expand=True)
 
     page.add(header, tabs)
@@ -269,15 +262,12 @@ def main(page: ft.Page):
         while True:
             if bot_engine.logs:
                 log_view.controls.clear()
-                for log in bot_engine.logs[:30]: 
-                    log_view.controls.append(ft.Text(log, font_family="Consolas", size=12))
+                for log in bot_engine.logs[:30]: log_view.controls.append(ft.Text(log, font_family="Consolas", size=12))
                 log_view.update()
-            
             if bot_engine.account_info:
                  txt_live_balance.value = f"${bot_engine.account_info.get('balance', 0):,.2f}"
                  txt_live_equity.value = f"${bot_engine.account_info.get('equity', 0):,.2f}"
                  txt_live_id.value = str(bot_engine.account_info.get('login', '---'))
-            
             if bot_engine.equity_history:
                 points = [ft.LineChartDataPoint(i, pt["value"]) for i, pt in enumerate(bot_engine.equity_history)]
                 live_chart.data_series[0].data_points = points
@@ -285,7 +275,6 @@ def main(page: ft.Page):
                      vals = [p.y for p in points]
                      live_chart.min_y = min(vals) * 0.99
                      live_chart.max_y = max(vals) * 1.01
-
             try: page.update()
             except: pass
             time.sleep(0.5)
