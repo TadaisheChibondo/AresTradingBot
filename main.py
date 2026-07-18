@@ -39,7 +39,10 @@ def main(page: ft.Page):
     live_chart = ft.LineChart(data_series=chart_data, min_y=0, max_y=1000, expand=True)
     chart_container = ft.Container(content=live_chart, bgcolor="#111111", height=350, padding=10, border_radius=10)
 
-    log_view = ft.ListView(expand=True, spacing=5, padding=10, auto_scroll=True)
+    # --- FIXED LOG VIEW ---
+    # Using a single multi-line text block prevents Flet from glitching the auto-scroll
+    log_text_block = ft.Text("", font_family="Consolas", size=12)
+    log_view = ft.ListView(controls=[log_text_block], expand=True, padding=10, auto_scroll=True)
     log_container = ft.Container(content=log_view, bgcolor="#111111", height=250, border_radius=10)
 
     def toggle_bot(e):
@@ -113,25 +116,38 @@ def main(page: ft.Page):
     input_app_pass = ft.TextField(label="App Password",   value=bot_engine.config.get("app_password",  ""), width=300, password=True, can_reveal_password=True)
     check_email    = ft.Checkbox(label="Enable Email Alerts", value=bot_engine.config.get("enable_email", False))
 
-    # ── CHANGED: was "Lot Size" / config["lot_size"]
-    #            now "Risk % per Trade" / config["risk_pct"]
+    # --- NEW LOT SIZING CONTROLS ---
+    dd_sizing_mode = ft.Dropdown(
+        label="Lot Sizing Mode",
+        options=[ft.dropdown.Option("Fixed"), ft.dropdown.Option("Dynamic")],
+        value=bot_engine.config.get("lot_sizing_mode", "Fixed"),
+        width=300
+    )
+    input_fixed_lot = ft.TextField(
+        label="Fixed Lot Size (e.g., 0.2)",
+        value=str(bot_engine.config.get("fixed_lot", 0.2)),
+        width=300
+    )
     input_risk = ft.TextField(
-        label="Risk % per Trade (recommended: 0.75–1.0)",
+        label="Dynamic Risk % per Trade",
         value=str(bot_engine.config.get("risk_pct", 1.0)),
         width=300
     )
 
     def save_config(e):
-        # ── CHANGED: saves risk_pct instead of lot_size
-        try:
-            bot_engine.config["risk_pct"] = float(input_risk.value)
-        except ValueError:
-            pass
+        try: bot_engine.config["fixed_lot"] = float(input_fixed_lot.value)
+        except ValueError: pass
+        
+        try: bot_engine.config["risk_pct"] = float(input_risk.value)
+        except ValueError: pass
+        
+        bot_engine.config["lot_sizing_mode"] = dd_sizing_mode.value
         bot_engine.config["active_indices"] = [c.label for c in indices_checks if c.value]
         bot_engine.config["email_address"]  = input_email.value
         bot_engine.config["app_password"]   = input_app_pass.value
         bot_engine.config["enable_email"]   = check_email.value
         bot_engine.save_settings()
+        
         page.snack_bar = ft.SnackBar(ft.Text("✅ Settings Saved!"))
         page.snack_bar.open = True
         page.update()
@@ -146,12 +162,12 @@ def main(page: ft.Page):
                 txt_acc_status
             ]),
             ft.Divider(),
-            ft.Text("Risk Management", size=18, weight="bold"),
-            # ── CHANGED: replaced input_lots with input_risk
-            input_risk,
+            ft.Text("Position Sizing & Risk", size=18, weight="bold"),
+            dd_sizing_mode,
+            ft.Row([input_fixed_lot, input_risk]),
             ft.Text(
-                "Position size is calculated dynamically per trade:\n"
-                "  Lots = (Balance × Risk%) ÷ (SL distance × point value)",
+                "• Fixed: Always trades the exact lot size defined.\n"
+                "• Dynamic: Calculates Lots = (Balance × Risk%) ÷ (SL distance × point value)",
                 size=11, color="grey"
             ),
             ft.Divider(),
@@ -172,7 +188,6 @@ def main(page: ft.Page):
     txt_bt_winrate   = ft.Text("0.0%",  size=20, weight="bold", color="white")
     txt_bt_balance   = ft.Text("$0.00", size=20, weight="bold", color="white")
     txt_bt_trades    = ft.Text("0",     size=20, weight="bold", color="white")
-    # ── ADDED: profit factor display (new engine returns this)
     txt_bt_pf        = ft.Text("0.00",  size=20, weight="bold", color="white")
 
     bt_stats_container = ft.Container(
@@ -181,7 +196,6 @@ def main(page: ft.Page):
             ft.Column([ft.Text("Win Rate",        color="grey"), txt_bt_winrate], horizontal_alignment="center"),
             ft.Column([ft.Text("Final Balance",   color="grey"), txt_bt_balance], horizontal_alignment="center"),
             ft.Column([ft.Text("Total Trades",    color="grey"), txt_bt_trades],  horizontal_alignment="center"),
-            # ── ADDED profit factor column
             ft.Column([ft.Text("Profit Factor",   color="grey"), txt_bt_pf],      horizontal_alignment="center"),
         ], alignment="spaceEvenly"),
         bgcolor="#222222", padding=20, border_radius=10, visible=False
@@ -191,13 +205,11 @@ def main(page: ft.Page):
     txt_bt_status = ft.Text("Select a symbol to test.", color="grey")
 
     def _populate_stats(summary):
-        """Helper: fills in the analytics mini-dashboard from a summary dict."""
         txt_bt_profit.value  = f"${summary['net_profit']:.2f}"
         txt_bt_profit.color  = "green" if summary['net_profit'] >= 0 else "red"
         txt_bt_winrate.value = f"{summary['win_rate']:.1f}%"
         txt_bt_balance.value = f"${summary['final_balance']:.2f}"
         txt_bt_trades.value  = str(summary['total_trades'])
-        # ── ADDED: profit factor (present in backtest summary; default for MC)
         pf = summary.get('profit_factor', 0.0)
         txt_bt_pf.value = f"{pf:.2f}"
         txt_bt_pf.color = "green" if pf >= 1.5 else "orange" if pf >= 1.0 else "red"
@@ -234,9 +246,6 @@ def main(page: ft.Page):
         bt_stats_container.visible = False
         page.update()
 
-        # ── CHANGED: run_monte_carlo() returns only a report path (string).
-        #   We build a lightweight summary from the engine's config to still
-        #   populate the stats panel without needing a second return value.
         report_path = bot_engine.run_monte_carlo(
             symbol        = dd_symbol.value or "Boom 1000 Index",
             start_balance = 1000.0,
@@ -245,13 +254,12 @@ def main(page: ft.Page):
             risk          = bot_engine.config.get("risk_pct", 1.0) / 100.0,
         )
 
-        # Derive approximate summary for the UI panel
         mc_summary = {
-            "net_profit":    0.0,   # actual figure is inside the HTML report
-            "win_rate":      48.0,  # strategy target mid-point
+            "net_profit":    0.0,
+            "win_rate":      48.0,
             "final_balance": 1000.0,
             "total_trades":  300,
-            "profit_factor": round(0.48 * 2.33 / (1 - 0.48), 2),  # = ~2.15
+            "profit_factor": round(0.48 * 2.33 / (1 - 0.48), 2),
         }
         _populate_stats(mc_summary)
 
@@ -338,13 +346,12 @@ def main(page: ft.Page):
     # ==========================
     def update_ui():
         while True:
+            # Cleanly update the log text block
             if bot_engine.logs:
-                log_view.controls.clear()
-                for log in bot_engine.logs[:30]:
-                    log_view.controls.append(
-                        ft.Text(log, font_family="Consolas", size=12)
-                    )
-                log_view.update()
+                new_logs = "\n".join(bot_engine.logs)
+                if log_text_block.value != new_logs:
+                    log_text_block.value = new_logs
+                    log_view.update()
 
             if bot_engine.account_info:
                 txt_live_balance.value = f"${bot_engine.account_info.get('balance', 0):,.2f}"
@@ -356,11 +363,20 @@ def main(page: ft.Page):
                     ft.LineChartDataPoint(i, pt["value"])
                     for i, pt in enumerate(bot_engine.equity_history)
                 ]
-                live_chart.data_series[0].data_points = points
+                
+                # RE-ASSIGN the entire data series to force Flet to detect the change
+                live_chart.data_series = [
+                    ft.LineChartData(data_points=points, color="cyan", stroke_width=2)
+                ]
+                
                 if points:
                     vals = [p.y for p in points]
-                    live_chart.min_y = min(vals) * 0.99
-                    live_chart.max_y = max(vals) * 1.01
+                    # Tighter margins (0.999 / 1.001) so small equity shifts are visible
+                    live_chart.min_y = min(vals) * 0.999
+                    live_chart.max_y = max(vals) * 1.001
+                
+                # Explicitly update the chart widget before the page updates
+                live_chart.update()
 
             try:
                 page.update()
@@ -369,7 +385,6 @@ def main(page: ft.Page):
             time.sleep(0.5)
 
     page.run_thread(update_ui)
-
 
 if __name__ == "__main__":
     ft.app(target=main)
