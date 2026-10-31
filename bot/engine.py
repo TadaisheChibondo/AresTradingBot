@@ -57,7 +57,7 @@ class TradingEngine:
 
         # ── Per-symbol fixed params ──────────────────────────────────
         self.STRATEGY_PARAMS = {
-            'Boom 1000 Index': {'direction': 'BUY',  'sl': 3.5, 'cooldown': 60, 'zone': 3.0, 'ema': 8.0, 'rsi_oversold': 35, 'rsi_overbought': 65, 'magic': 100100},
+            'Boom 1000 Index': {'direction': 'BUY',  'sl': 6.5, 'cooldown': 60, 'zone': 3.0, 'ema': 8.0, 'rsi_oversold': 35, 'rsi_overbought': 65, 'magic': 100100},
             'Boom 900 Index':  {'direction': 'BUY',  'sl': 3.5, 'cooldown': 60, 'zone': 4.0, 'ema': 4.0, 'rsi_oversold': 30, 'rsi_overbought': 70, 'magic': 100900},
             'Boom 500 Index':  {'direction': 'BUY',  'sl': 3.5, 'cooldown': 60, 'zone': 5.0, 'ema': 6.0, 'rsi_oversold': 30, 'rsi_overbought': 70, 'magic': 100500},
             'Crash 1000 Index':{'direction': 'SELL', 'sl': 2.5, 'cooldown': 15, 'zone': 5.0, 'ema': 6.0, 'rsi_oversold': 30, 'rsi_overbought': 70, 'magic': 200100},

@@ -15,6 +15,13 @@ def main(page: ft.Page):
 
     # SHARED
     status_icon = ft.Icon(ft.Icons.CIRCLE, color="red", size=15)
+    status_icon_wrap = ft.Container(
+        content=status_icon,
+        scale=1.0,
+        opacity=1.0,
+        animate_scale=ft.Animation(700, "easeInOut"),
+        animate_opacity=ft.Animation(700, "easeInOut"),
+    )
     status_text = ft.Text(value="OFFLINE", color="grey")
 
     # ==========================
@@ -23,20 +30,24 @@ def main(page: ft.Page):
     txt_live_balance = ft.Text("$0.00", size=25, weight="bold", color="green")
     txt_live_equity  = ft.Text("$0.00", size=25, weight="bold", color="cyan")
     txt_live_id      = ft.Text("---",   size=16, color="grey")
-    
+
+    balance_flash = ft.Container(content=txt_live_balance, opacity=1.0, animate_opacity=ft.Animation(250, "easeOut"))
+    equity_flash  = ft.Container(content=txt_live_equity,  opacity=1.0, animate_opacity=ft.Animation(250, "easeOut"))
+
     stats_container = ft.Container(
         content=ft.Row([
-            ft.Column([ft.Text("Account Balance", size=12, color="grey"), txt_live_balance], alignment="center"),
+            ft.Column([ft.Text("Account Balance", size=12, color="grey"), balance_flash], alignment="center"),
             ft.Container(width=1, height=40, bgcolor="grey"),
-            ft.Column([ft.Text("Live Equity", size=12, color="grey"), txt_live_equity], alignment="center"),
+            ft.Column([ft.Text("Live Equity", size=12, color="grey"), equity_flash], alignment="center"),
             ft.Container(width=1, height=40, bgcolor="grey"),
             ft.Column([ft.Text("Connected Account", size=12, color="grey"), txt_live_id], alignment="center"),
         ], alignment="spaceEvenly"),
-        bgcolor="#1a1a1a", padding=15, border_radius=10
+        bgcolor="#1a1a1a", padding=15, border_radius=10,
+        animate=ft.Animation(300, "easeOut"),
     )
 
     chart_data = [ft.LineChartData(data_points=[ft.LineChartDataPoint(0, 0)], color="cyan", stroke_width=2)]
-    live_chart = ft.LineChart(data_series=chart_data, min_y=0, max_y=1000, expand=True)
+    live_chart = ft.LineChart(data_series=chart_data, min_y=0, max_y=1000, expand=True, animate=ft.Animation(400, "easeInOut"))
     chart_container = ft.Container(content=live_chart, bgcolor="#111111", height=350, padding=10, border_radius=10)
 
     # --- FIXED LOG VIEW ---
@@ -74,6 +85,17 @@ def main(page: ft.Page):
         on_click=toggle_bot
     )
 
+    def _btn_hover(e):
+        start_btn_wrap.scale = 1.04 if e.data == "true" else 1.0
+        start_btn_wrap.update()
+
+    start_btn_wrap = ft.Container(
+        content=start_btn,
+        scale=1.0,
+        animate_scale=ft.Animation(150, "easeOut"),
+        on_hover=_btn_hover,
+    )
+
     tab_terminal = ft.Container(
         content=ft.Column([
             ft.Text("Live Dashboard", size=16, weight="bold"),
@@ -83,7 +105,7 @@ def main(page: ft.Page):
             chart_container,
             ft.Text("Live Logs", size=16, weight="bold"),
             log_container,
-            ft.Container(start_btn, alignment=ft.alignment.center, padding=10)
+            ft.Container(start_btn_wrap, alignment=ft.alignment.center, padding=10)
         ], scroll=ft.ScrollMode.AUTO), padding=20
     )
 
@@ -198,7 +220,10 @@ def main(page: ft.Page):
             ft.Column([ft.Text("Total Trades",    color="grey"), txt_bt_trades],  horizontal_alignment="center"),
             ft.Column([ft.Text("Profit Factor",   color="grey"), txt_bt_pf],      horizontal_alignment="center"),
         ], alignment="spaceEvenly"),
-        bgcolor="#222222", padding=20, border_radius=10, visible=False
+        bgcolor="#222222", padding=20, border_radius=10, visible=False,
+        opacity=0, scale=0.92,
+        animate_opacity=ft.Animation(400, "easeOut"),
+        animate_scale=ft.Animation(400, "easeOut"),
     )
 
     dd_symbol    = ft.Dropdown(options=[ft.dropdown.Option(s) for s in bot_engine.SYMBOLS], width=250, label="Symbol")
@@ -214,6 +239,11 @@ def main(page: ft.Page):
         txt_bt_pf.value = f"{pf:.2f}"
         txt_bt_pf.color = "green" if pf >= 1.5 else "orange" if pf >= 1.0 else "red"
         bt_stats_container.visible = True
+        bt_stats_container.opacity = 0
+        bt_stats_container.scale = 0.92
+        page.update()
+        bt_stats_container.opacity = 1
+        bt_stats_container.scale = 1
 
     def run_bt(e):
         if not dd_symbol.value:
@@ -328,7 +358,7 @@ def main(page: ft.Page):
             ft.Icon(ft.Icons.TRENDING_UP, color="cyan", size=30),
             ft.Text("ARES TERMINAL PRO", size=20, weight="bold"),
             ft.Container(expand=True),
-            status_icon, status_text
+            status_icon_wrap, status_text
         ]), padding=15, bgcolor="#1f2630"
     )
 
@@ -344,6 +374,9 @@ def main(page: ft.Page):
     # ==========================
     # UI REFRESH LOOP
     # ==========================
+    pulse_state = {"on": False}
+    last_values = {"balance": None, "equity": None}
+
     def update_ui():
         while True:
             # Cleanly update the log text block
@@ -353,10 +386,34 @@ def main(page: ft.Page):
                     log_text_block.value = new_logs
                     log_view.update()
 
+            # Pulse the status dot gently while the bot is online
+            if status_text.value == "ONLINE":
+                pulse_state["on"] = not pulse_state["on"]
+                status_icon_wrap.scale   = 1.35 if pulse_state["on"] else 1.0
+                status_icon_wrap.opacity = 0.55 if pulse_state["on"] else 1.0
+                status_icon_wrap.update()
+
             if bot_engine.account_info:
-                txt_live_balance.value = f"${bot_engine.account_info.get('balance', 0):,.2f}"
-                txt_live_equity.value  = f"${bot_engine.account_info.get('equity',  0):,.2f}"
+                new_balance = bot_engine.account_info.get('balance', 0)
+                new_equity  = bot_engine.account_info.get('equity', 0)
+
+                # Flash the balance/equity numbers briefly when they change
+                if last_values["balance"] is not None and new_balance != last_values["balance"]:
+                    balance_flash.opacity = 0.25
+                    balance_flash.update()
+                if last_values["equity"] is not None and new_equity != last_values["equity"]:
+                    equity_flash.opacity = 0.25
+                    equity_flash.update()
+
+                txt_live_balance.value = f"${new_balance:,.2f}"
+                txt_live_equity.value  = f"${new_equity:,.2f}"
                 txt_live_id.value      = str(bot_engine.account_info.get('login', '---'))
+
+                balance_flash.opacity = 1.0
+                equity_flash.opacity  = 1.0
+
+                last_values["balance"] = new_balance
+                last_values["equity"]  = new_equity
 
             if bot_engine.equity_history:
                 points = [
