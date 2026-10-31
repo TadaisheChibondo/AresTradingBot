@@ -128,78 +128,108 @@ class TradingEngine:
     # ════════════════════════════════════════════════════════════════
     # STRATEGY LOGIC
     # ════════════════════════════════════════════════════════════════
-
     def get_market_data(self, symbol):
         cfg = self.STRATEGY_PARAMS[symbol]
 
-        rates_h1 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 500)
-        if rates_h1 is None or len(rates_h1) < 20:
-            self.log(f"⚠️  {symbol}: insufficient H1 data.")
+        # 1. Macro Trend (H4)
+        rates_h4 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H4, 0, 100)
+        if rates_h4 is None or len(rates_h4) < 50:
+            self.log(f"⚠️  {symbol}: insufficient H4 data.")
             return None
-
+        df_h4 = pd.DataFrame(rates_h4)
+        df_h4['EMA50'] = ta.ema(df_h4['close'], length=50)
+        curr_h4 = df_h4.iloc[-1]
+        
+        # 2. Structural Levels (H1)
+        rates_h1 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 200)
+        if rates_h1 is None or len(rates_h1) < 20:
+            return None
         df_h1 = pd.DataFrame(rates_h1)
         n = 5
         df_h1['Swing_High'] = df_h1.iloc[argrelextrema(df_h1['high'].values, np.greater_equal, order=n)[0]]['high']
         df_h1['Swing_Low'] = df_h1.iloc[argrelextrema(df_h1['low'].values, np.less_equal, order=n)[0]]['low']
-        df_h1['Active_Res'] = df_h1['Swing_High'].ffill()
-        df_h1['Active_Sup'] = df_h1['Swing_Low'].ffill()
+        active_res = df_h1['Swing_High'].ffill().iloc[-1]
+        active_sup = df_h1['Swing_Low'].ffill().iloc[-1]
 
-        rates_m1 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, 300)
-        if rates_m1 is None or len(rates_m1) < 250:
-            self.log(f"⚠️  {symbol}: insufficient M1 data.")
+        # 3. Entry Timeframe (M15)
+        # Fetching 20 candles to allow a wide enough lookback for the breakout-retest sequence
+        rates_m15 = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M15, 0, 20)
+        if rates_m15 is None or len(rates_m15) < 20:
             return None
-
-        df_m1 = pd.DataFrame(rates_m1)
-        df_m1['EMA20'] = ta.ema(df_m1['close'], length=20)
-        df_m1['EMA50'] = ta.ema(df_m1['close'], length=50)
-        df_m1['EMA200'] = ta.ema(df_m1['close'], length=200)
-        df_m1['RSI'] = ta.rsi(df_m1['close'], length=14)
-        df_m1['ATR'] = ta.atr(df_m1['high'], df_m1['low'], df_m1['close'], length=14)
-        df_m1['ATR_SMA'] = df_m1['ATR'].rolling(window=10).mean()
-
-        curr_m1 = df_m1.iloc[-1]
-        prev_m1 = df_m1.iloc[-2]
-        curr_h1 = df_h1.iloc[-1]
-        
-        vol_ok = curr_m1['ATR'] > curr_m1['ATR_SMA'] if not pd.isna(curr_m1['ATR_SMA']) else False
+        df_m15 = pd.DataFrame(rates_m15)
+        df_m15['ATR'] = ta.atr(df_m15['high'], df_m15['low'], df_m15['close'], length=14)
 
         return {
-            "current_price": curr_m1['close'],
-            "active_res":    curr_h1['Active_Res'],
-            "active_sup":    curr_h1['Active_Sup'],
-            "ema20":         curr_m1['EMA20'],
-            "ema50":         curr_m1['EMA50'],
-            "ema200":        curr_m1['EMA200'],
-            "rsi_prev":      prev_m1['RSI'],
-            "atr":           curr_m1['ATR'],
-            "vol_ok":        vol_ok,
+            "m15_window":  df_m15,
+            "macro_trend": "BULLISH" if curr_h4['close'] > curr_h4['EMA50'] else "BEARISH",
+            "active_res":  active_res,
+            "active_sup":  active_sup,
+            "atr":         df_m15['ATR'].iloc[-1]
         }
 
     def check_entry_signal(self, symbol, data):
         cfg = self.STRATEGY_PARAMS[symbol]
         MODE = cfg["direction"]
-        current_price = data["current_price"]
 
-        zone_size = (data["atr"] * cfg["zone"]) if not pd.isna(data["atr"]) else 1.0
-        near_sup = abs(current_price - data["active_sup"]) < zone_size if not pd.isna(data["active_sup"]) else False
-        near_res = abs(current_price - data["active_res"]) < zone_size if not pd.isna(data["active_res"]) else False
+        # 1. Check Macro Trend Alignment
+        if MODE == 'BUY' and data["macro_trend"] != "BULLISH": return False
+        if MODE == 'SELL' and data["macro_trend"] != "BEARISH": return False
 
-        near_ema = (abs(current_price - data["ema20"]) < cfg["ema"]) or \
-                   (abs(current_price - data["ema50"]) < cfg["ema"]) or \
-                   (abs(current_price - data["ema200"]) < cfg["ema"])
+        window = data["m15_window"].reset_index(drop=True)
+        # Use ATR and the config zone multiplier to create dynamic tolerance around H1 levels
+        tolerance = (data["atr"] * cfg["zone"]) if not pd.isna(data["atr"]) else 2.0 
+        
+        breakout_occurred = False
+        retest_occurred = False
 
-        rsi_signal = data["rsi_prev"] <= cfg["rsi_oversold"] if MODE == 'BUY' else data["rsi_prev"] >= cfg["rsi_overbought"]
+        # 2. Iterate through closed M15 candles to find the sequence
+        # We exclude the very last candle ([-1]) during the loop because it is still forming
+        for i in range(len(window) - 2):
+            close_price = window.loc[i, 'close']
+            high_price = window.loc[i, 'high']
+            low_price = window.loc[i, 'low']
+            
+            if MODE == 'BUY':
+                # Breakout of H1 Resistance
+                if not breakout_occurred:
+                    if close_price > (data["active_res"] + tolerance):
+                        breakout_occurred = True
+                        continue
+                # Retest of H1 Resistance
+                if breakout_occurred and not retest_occurred:
+                    if low_price <= (data["active_res"] + tolerance) and close_price >= (data["active_res"] - tolerance):
+                        retest_occurred = True
 
-        is_uptrend = current_price > data["ema200"]
-        is_downtrend = current_price < data["ema200"]
-        trend_ok = (MODE == 'BUY' and is_uptrend) or (MODE == 'SELL' and is_downtrend)
+            elif MODE == 'SELL':
+                # Breakout of H1 Support
+                if not breakout_occurred:
+                    if close_price < (data["active_sup"] - tolerance):
+                        breakout_occurred = True
+                        continue
+                # Retest of H1 Support
+                if breakout_occurred and not retest_occurred:
+                    if high_price >= (data["active_sup"] - tolerance) and close_price <= (data["active_sup"] + tolerance):
+                        retest_occurred = True
 
-        valid_trigger = (near_sup if MODE == 'BUY' else near_res) or near_ema or rsi_signal
+        # 3. Check for Confirmation on the recently closed candle ([-2])
+        if breakout_occurred and retest_occurred:
+            confirm_candle = window.iloc[-2]
+            prev_candle = window.iloc[-3]
+            
+            if MODE == 'BUY':
+                is_bullish = confirm_candle['close'] > confirm_candle['open']
+                breaks_prev_high = confirm_candle['close'] > prev_candle['high']
+                if is_bullish and breaks_prev_high:
+                    return True
+                    
+            elif MODE == 'SELL':
+                is_bearish = confirm_candle['close'] < confirm_candle['open']
+                breaks_prev_low = confirm_candle['close'] < prev_candle['low']
+                if is_bearish and breaks_prev_low:
+                    return True
 
-        if valid_trigger and data["vol_ok"] and trend_ok:
-            return True
         return False
-
+    
     def calculate_lot_size(self, sl_distance_points, symbol):
         """
         Checks the UI settings and applies either the hardcoded Fixed size, 
